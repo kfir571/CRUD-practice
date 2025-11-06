@@ -3,10 +3,12 @@ import logging
 import os
 import requests
 from typing import Optional, Any
+from functools import lru_cache
+
+from connector.config import get_url
+from connector.config import load_settings
 
 logger = logging.getLogger(__name__)
-_session = None
-
 
 class RemoteTimeout(Exception):
     pass
@@ -26,13 +28,12 @@ class ApiRequestError(Exception):
         self.url = url
         self.message = message
 
+@lru_cache(maxsize=1)
 def get_session() -> requests.Session:
-    global _session
-    if _session is None:
-        _session = requests.Session()
-        _session.headers = {"Content-Type": "application/json"}
+    session = requests.Session()
+    session.headers = {"Content-Type": "application/json"}
     
-    return _session
+    return session
 
 
 def _base_url() -> str:
@@ -47,14 +48,14 @@ def _url(path: str) -> str:
 def request_json(
         method: str,
         url: str, 
-        params: dict[str, Any] | None = None,
-        json: dict[str, Any] | None = None,
-        headers: dict[str, str] | None = None,
+        params: dict[str, Any] = dict(),
+        json: dict[str, Any] = dict(),
+        headers: dict[str, str] = dict(),
         timeout: tuple[float, float] = (
             float(os.getenv("TIMEOUT_CONNECT", "2.0")), 
             float(os.getenv("TIMEOUT_RECIVE", "8.0"))
         ),
-)-> dict[str, Any] | list[Any]:
+)-> dict[str, Any]:
         
     try:
         resp = get_session().request(method=method, url=url, params=params, json=json, timeout=timeout)
@@ -67,6 +68,7 @@ def request_json(
         raise RemoteConnectionError(e) from e
     except Exception as e:
         logger.critical(f"❌ Unexpected error: {e}")
+        raise ApiRequestError(url, str(e)) from e
 
     if not resp.ok:
         preview = resp.text[:200] if resp.text else ""
@@ -111,20 +113,18 @@ def retry(
 
     return data 
 
-def get_posts() -> list[dict]:
-    url = os.getenv("BASE_URL", "").rstrip('/') + "/posts"
+def get_posts(url: str) -> list[dict]:
     return retry("GET", url, timeout= (2.0, 8.0))
 
-def get_users() -> list[dict]:
-    url = os.getenv("BASE_URL", "").rstrip('/') + "/users"
+def get_users(url: str) -> list[dict]:
     return retry("GET", url, timeout= (2.0, 8.0))
 
-def get_comments() -> list[dict]:
-    url = os.getenv("BASE_URL", "").rstrip('/') + "/comments"
+def get_comments(url: str) -> list[dict]:
+    # url = os.getenv("BASE_URL", "").rstrip('/') + "/comments"
     return retry("GET", url, timeout= (2.0, 8.0))
 
-def creat_post(user_id: int, title: str, body: str) -> dict[str, Any]:
-    url = os.getenv("BASE_URL", "").rstrip('/') + "post/" + str(user_id)
+def creat_post(url: str, user_id: int, title: str, body: str) -> dict[str, Any]:
+    # url = os.getenv("BASE_URL", "").rstrip('/') + "post/" + str(user_id)
     data = {"user_id": user_id, "title": title, "body": body}
     return retry("POST", url=url,json=data, timeout= (2.0, 8.0))
 
@@ -133,12 +133,12 @@ def update_post_put(post_id: int, user_id: int, title: str, body: str) -> dict[s
         raise ValueError("post_id and user_id must be positive")
     if not title or not body:
         raise ValueError("title and body are required")
-    url = _url(f"posts/{post_id}")
+    url = get_url("/posts") + str(user_id)
     payload = {"id": post_id, "userId": user_id, "title": title, "body": body}
     return retry("PUT", url, json=payload, timeout=(2.0, 8.0))
 
 
-def update_post_patch(post_id: int, **fields) -> dict[str, Any]:
+def update_post_patch(url: str, post_id: int, **fields) -> dict[str, Any]:
     if post_id <= 0:
         raise ValueError("post_id must be positive")
     if not fields:
@@ -152,7 +152,7 @@ def update_post_patch(post_id: int, **fields) -> dict[str, Any]:
     return retry("PATCH", url, json=fields, headers={"Content-Type": "application/json"}, timeout=(2.0, 8.0))
 
 
-def delete_post(post_id: int) -> bool:
+def delete_post(url: str, post_id: int) -> bool:
     if post_id <= 0:
         raise ValueError("post_id must be positive")
     url = _url(f"posts/{post_id}")

@@ -1,23 +1,28 @@
 from collections import defaultdict
 from json import dumps
 from connector.api import get_posts, get_users, get_comments
+from connector.config import load_settings, get_url
 import pandas as pd # type: ignore
 
 _post: list[dict] | None = None
 _users: list[dict] | None = None
 _comments: list[dict] | None = None
 
+# def get_url(endpoint: str = "") -> str:
+#     return load_settings().strip('/') + endpoint
+
 def _get_comments() -> list[dict]:
     global _comments
     if _comments is None:
-        _comments = get_comments()
+        _comments = get_comments(get_url("/comments"))
     
     return _comments
 
 def _get_users() -> list[dict]:
     global _users
     if _users is None:
-        _users = get_users()
+        # url = os.getenv("BASE_URL", "").rstrip('/') + "/users"
+        _users = get_users(get_url("/users"))
     
     return _users
 
@@ -25,7 +30,8 @@ def _get_users() -> list[dict]:
 def _get_posts() -> list[dict]:
     global _post
     if _post is None:
-        _post = get_posts()
+        # url = os.getenv("BASE_URL", "").rstrip('/') + "/posts"
+        _post = get_posts(get_url("/posts"))
     
     return _post
 
